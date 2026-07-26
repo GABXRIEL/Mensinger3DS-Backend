@@ -1,57 +1,48 @@
 from flask import Flask, request, jsonify
-from datetime import datetime
 
 app = Flask(__name__)
 
-# Base de datos temporal en memoria
-mensajes_db = {}
+# Límite de memoria: guardaremos máximo 50 mensajes en el servidor
+MAX_MENSAJES = 50
+mensajes_db = []
 
 @app.route('/')
 def home():
-    return jsonify({"status": "Servidor Mensinger 3DS Activo 🚀"})
+    return "Servidor Mensinger3DS funcionando", 200
 
-# 1. ENDPOINT PARA ENVIAR UN MENSAJE
+# Endpoint para enviar mensajes (POST)
 @app.route('/api/enviar', methods=['POST'])
-def enviar_mensaje():
-    data = request.get_json()
-    
-    if not data or 'de' not in data or 'para' not in data or 'mensaje' not in data:
-        return jsonify({"error": "Datos incompletos"}), 400
+def enviar():
+    try:
+        data = request.get_json(force=True)
+        de = data.get('de')
+        para = data.get('para')
+        texto = data.get('mensaje')
 
-    remitente = str(data['de'])
-    destinatario = str(data['para'])
-    texto = data['mensaje']
+        if de and para and texto:
+            nuevo_msg = {"de": de, "para": para, "mensaje": texto}
+            mensajes_db.append(nuevo_msg)
+            
+            # 🧹 LIMPIEZA AUTOMÁTICA: Si hay más de 50, se elimina el más viejo (el primero)
+            if len(mensajes_db) > MAX_MENSAJES:
+                mensajes_db.pop(0)
 
-    nuevo_mensaje = {
-        "de": remitente,
-        "texto": texto,
-        "fecha": datetime.now().strftime("%H:%M")
-    }
+            print(f"[NUEVO MENSAJE] De: {de} -> Para: {para}: {texto}")
+            return jsonify({"status": "ok", "mensaje": "Enviado con exito"}), 200
+        
+        return jsonify({"status": "error", "mensaje": "Faltan campos"}), 400
+    except Exception as e:
+        return jsonify({"status": "error", "mensaje": str(e)}), 500
 
-    if destinatario not in mensajes_db:
-        mensajes_db[destinatario] = []
-
-    mensajes_db[destinatario].append(nuevo_mensaje)
-
-    print(f"[NUEVO MENSAJE] De: {remitente} -> Para: {destinatario}: {texto}")
-    return jsonify({"status": "ok", "mensaje": "Enviado con éxito"}), 200
-
-# 2. ENDPOINT PARA CONSULTAR MENSAJES NUEVOS (Recibir)
-@app.route('/api/recibir', methods=['GET'])
-def recibir_mensajes():
-    mi_key = request.args.get('my_key')
-    
-    if not mi_key:
-        return jsonify({"error": "Falta parametro my_key"}), 400
-
-    mi_key = str(mi_key)
-
-    if mi_key in mensajes_db and mensajes_db[mi_key]:
-        mensajes = mensajes_db[mi_key].copy()
-        mensajes_db[mi_key] = []  # Vaciar cola una vez entregados
-        return jsonify({"mensajes": mensajes}), 200
-
-    return jsonify({"mensajes": []}), 200
+# Endpoint para que las 3DS consulten sus mensajes (GET)
+@app.route('/api/recibir/<usuario>', methods=['GET'])
+def recibir(usuario):
+    try:
+        # Filtra solo los mensajes que tienen como destinatario a este usuario
+        mis_mensajes = [m for m in mensajes_db if m['para'] == usuario]
+        return jsonify({"status": "ok", "mensajes": mis_mensajes}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "mensaje": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=10000)
